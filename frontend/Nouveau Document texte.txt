@@ -1,0 +1,5 @@
+index.html
+# Le portail d'administration (le "GUI")
+
+script.js
+# Fait les appels API vers le backend

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>Supervision IT</title>
+    <!-- Utilisation de Bootstrap 5 -->
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <script>
+        // Applique le thème immédiatement au chargement pour éviter le flash
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-bs-theme', savedTheme);
+    </script>
+    <style>
+        /* CSS léger pour aider la mise en page */
+        .sticky-header { position: sticky; top: 0; z-index: 1; background-color: var(--bs-body-bg); }
+    </style>
+</head>
+<body class="p-4 bg-body text-body">
+    <div class="row mb-4 align-items-center">
+        <div class="col-md-3 d-flex gap-2">
+            <button class="btn btn-outline-secondary" id="themeToggle">Thème</button>
+            <input type="text" id="serverInput" class="form-control" value="localhost" placeholder="Nom du serveur ou IP">
+        </div>
+        <div class="col-md-9 btn-group">
+            <button class="btn btn-info" onclick="fetchData('system')">Système</button>
+            <button class="btn btn-danger" onclick="fetchData('disks')">Disques</button>
+            <button class="btn btn-warning" onclick="fetchData('gpos')">GPO</button>
+            <button class="btn btn-success" onclick="fetchData('ports')">Ports</button>
+            <button class="btn btn-outline-info" onclick="fetchData('services')">Services</button>
+            <button class="btn btn-outline-warning" onclick="fetchData('events')">Événements</button>
+        </div>
+    </div>
+    
+    <div id="resultArea" class="card p-3 shadow" style="min-height: 200px;">
+        <div class="text-muted text-center mt-5">Sélectionnez une action...</div>
+    </div>
+
+    <script>
+        // --- Fonction de filtre pour les services ---
+        function filterServices() {
+            const query = document.getElementById('searchService').value.toLowerCase();
+            const rows = document.querySelectorAll('#serviceTableBody tr');
+            rows.forEach(row => {
+                row.style.display = row.textContent.toLowerCase().includes(query) ? '' : 'none';
+            });
+        }
+        function filterEvents() {
+    const query = document.getElementById('searchEvent').value.toLowerCase();
+    const rows = document.querySelectorAll('#eventTableBody tr');
+    
+    rows.forEach(row => {
+        // La colonne ID est la 4ème (index 3)
+        const idCell = row.cells[3].textContent.toLowerCase();
+        row.style.display = idCell.includes(query) ? '' : 'none';
+    });
+}
+        function filterPorts() {
+    const query = document.getElementById('searchPort').value.toLowerCase();
+    const rows = document.querySelectorAll('#portTableBody tr');
+    
+    rows.forEach(row => {
+        // On cherche dans tout le contenu de la ligne (Port, App, Service, PID)
+        row.style.display = row.textContent.toLowerCase().includes(query) ? '' : 'none';
+    });
+}
+        // --- Gestion du Thème ---
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-bs-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-bs-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        });
+
+        // --- Récupération des données ---
+        async function fetchData(action) {
+            const target = document.getElementById('resultArea');
+            const server = document.getElementById('serverInput').value.trim() || 'localhost';
+            
+            target.innerHTML = `<div class="d-flex justify-content-center mt-5"><div class="spinner-border text-primary" role="status"></div></div>`;
+            
+            try {
+                const response = await fetch(`/api/${action}/${server}`);
+                const res = await response.json();
+                
+                if (!response.ok || res.Error) throw new Error(res.Error || res.detail || "Erreur serveur.");
+
+                if (action === 'system') {
+                    const topCPU = res.TopCPU || [];
+                    const topRAM = res.TopRAM || [];
+                    target.innerHTML = `
+                        <h5 class="text-info mb-1">${res.OS}</h5>
+                        <div class="mb-3">
+                            <span class="badge bg-primary fs-6 me-2">IP: ${res.IP}</span>
+                            <small class="text-muted">${res.CPU_Model} | RAM: ${res.RAM_Total} Go</small>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-6"><h6>Top 10 CPU (%)</h6><ul class="list-unstyled">${topCPU.map(p => `<li><span class="badge bg-danger me-2">${p.CPU}%</span> ${p.Name}</li>`).join('')}</ul></div>
+                            <div class="col-6"><h6>Top 10 RAM (Mo)</h6><ul class="list-unstyled">${topRAM.map(p => `<li><span class="badge bg-secondary me-2">${p.RAM_MB} Mo</span> ${p.Name}</li>`).join('')}</ul></div>
+                        </div>`;
+                } 
+                else if (action === 'disks') {
+                    const data = Array.isArray(res) ? res : [res];
+                    target.innerHTML = data.map(d => `
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between"><strong>${d.Drive}</strong><span>${d.Free} Go libres / ${d.Total} Go</span></div>
+                            <div class="progress"><div class="progress-bar ${d.UsedPct > 90 ? 'bg-danger' : 'bg-warning'}" style="width:${d.UsedPct}%">${d.UsedPct}%</div></div>
+                        </div>`).join('');
+                } 
+                else if (action === 'gpos') {
+                    const data = Array.isArray(res) ? res : [res];
+                    target.innerHTML = data.length > 0 ? data.map(g => `<span class="badge bg-secondary m-1 fs-6">${g}</span>`).join('') : "<div class='alert alert-info'>Aucune GPO.</div>";
+                } 
+                else if (action === 'ports') {
+                    const data = Array.isArray(res) ? res : [res];
+                    
+                    // Ajout du champ de recherche
+                    let html = `<input type="text" id="searchPort" class="form-control mb-3" placeholder="Rechercher par port, app ou service..." onkeyup="filterPorts()">`;
+                    
+                    html += `<div style="max-height: 500px; overflow-y: auto;">
+                             <table class="table table-hover table-striped">
+                                <thead class="sticky-header">
+                                    <tr><th>Port</th><th>Protocole</th><th>Application</th><th>Service</th><th>PID</th></tr>
+                                </thead>
+                                <tbody id="portTableBody">`; // ID crucial pour le filtrage
+                    
+                    html += data.map(p => `<tr>
+                        <td>${p.Port}</td>
+                        <td><span class="badge ${p.Proto === 'TCP' ? 'bg-primary' : 'bg-warning text-dark'}">${p.Proto}</span></td>
+                        <td><span class="badge bg-info text-dark">${p.App}</span></td>
+                        <td>${p.Service}</td>
+                        <td>${p.PID}</td>
+                    </tr>`).join('');
+                    
+                    html += `</tbody></table></div>`;
+                    target.innerHTML = html;
+                }
+                else if (action === 'services') {
+                    const data = Array.isArray(res) ? res : [res];
+                    const anomalies = data.filter(s => s.StartMode === 'Auto' && s.State !== 'Running');
+                    
+                    let html = `<input type="text" id="searchService" class="form-control mb-3" placeholder="Rechercher un service..." onkeyup="filterServices()">`;
+                    if (anomalies.length > 0) {
+                        html += `<h6 class="text-danger">⚠️ Services en anomalie</h6><table class="table table-danger mb-4"><thead><tr><th>Service</th><th>État</th></tr></thead><tbody>${anomalies.map(s => `<tr><td>${s.Name}</td><td>${s.State}</td></tr>`).join('')}</tbody></table>`;
+                    }
+                    html += `<div style="max-height: 400px; overflow-y: auto;"><table class="table table-hover table-striped"><thead class="sticky-header"><tr><th>Service</th><th>Nom</th><th>Démarrage</th><th>État</th></tr></thead><tbody id="serviceTableBody">${data.map(s => `<tr><td>${s.Name}</td><td>${s.DisplayName}</td><td>${s.StartMode}</td><td><span class="badge ${s.State === 'Running' ? 'bg-success' : 'bg-secondary'}">${s.State}</span></td></tr>`).join('')}</tbody></table></div>`;
+                    target.innerHTML = html;
+                }
+               else if (action === 'events') {
+    const data = Array.isArray(res) ? res : [res];
+
+    // On ajoute le champ de recherche
+    let html = `<input type="text" id="searchEvent" class="form-control mb-3" placeholder="Filtrer par ID d'événement..." onkeyup="filterEvents()">`;
+
+    html += `<div style="max-height: 500px; overflow-y: auto;">
+             <table class="table table-hover table-striped">
+                <thead class="sticky-header">
+                    <tr><th>Date</th><th>Niveau</th><th>Source</th><th>ID</th><th>Message</th></tr>
+                </thead>
+                <tbody id="eventTableBody">`; // Identifiant unique pour le filtre
+
+    html += data.map(e => {
+        const level = (e.Level || "").toLowerCase().trim();
+        const badgeClass = (level.includes('err') || level.includes('crit')) ? 'bg-danger' : 'bg-warning text-dark';
+        
+        return `<tr>
+            <td class="text-nowrap">${e.Time}</td>
+            <td><span class="badge ${badgeClass}">${e.Level}</span></td>
+            <td>${e.Source}</td>
+            <td>${e.EventID}</td>
+            <td title="${e.Message.replace(/"/g, '&quot;')}">${e.Message.substring(0, 50)}...</td>
+        </tr>`;
+    }).join('');
+
+    html += `</tbody></table></div>`;
+    target.innerHTML = html;
+}
+            } catch (e) { target.innerHTML = `<div class="alert alert-danger">${e.message}</div>`; }
+        }
+    </script>
+</body>
+</html>
